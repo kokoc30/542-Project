@@ -1,0 +1,21 @@
+# Core CV
+timm
+
+# Data
+pandas
+numpy
+scikit-learn
+
+# Augmentation / image IO
+albumentations
+opencv-python-headless
+Pillow
+
+# Viz
+matplotlib
+seaborn
+
+# Utils
+tqdm
+pyyaml
+tensorboard

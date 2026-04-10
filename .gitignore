@@ -1,0 +1,13 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+checkpoints/
+*.keras
+*.h5
+*.pt
+*.pth
+models/
+data/
+datasets/
