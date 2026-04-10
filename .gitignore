@@ -9,5 +9,12 @@ checkpoints/
 *.pt
 *.pth
 models/
-data/
-datasets/
+
+data/*
+!data/processed/
+data/processed/*
+!data/processed/*.csv
+!data/raw/
+data/raw/*
+!data/raw/*.csv
+data/raw/images/
