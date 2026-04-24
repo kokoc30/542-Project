@@ -20,3 +20,6 @@ data/raw/*
 data/raw/images/
 
 data/raw/images/
+
+data/raw/images/*
+!data/raw/images/.gitkeep
