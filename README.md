@@ -4,6 +4,7 @@ Binary image classification: **0 = benign**, **1 = malignant**.
 
 The dataset is extremely imbalanced (~98% benign), so accuracy is not a useful metric here. We use AUROC, PR-AUC, and recall-based thresholds instead.
 
+Dataset link: [ISIC 2024 Challenge Dataset](https://challenge2024.isic-archive.com/)
 ---
 
 ## Project Structure
