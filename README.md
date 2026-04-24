@@ -90,16 +90,16 @@ python src/preprocessing.py
 
 **2. Train**
 ```bash
-python src/train.py --experiment v3_KOKO --epochs 15 --fine_tune --fine_tune_epochs 10 --batch_size 128 --num_workers 8 --img_size 256
+python src/train.py --experiment v3_KOKO --epochs 25 --fine_tune --fine_tune_epochs 15 --batch_size 256 --num_workers 8 --img_size 256
 ```
 
 **3. Evaluate**
 ```bash
 # best F1 threshold
-python src/evaluate.py --experiment v3_KOKO --threshold auto --batch_size 128 --img_size 256 --num_workers 8
+python src/evaluate.py --experiment v3_KOKO --threshold auto --batch_size 256 --img_size 256 --num_workers 8
 
 # threshold targeting 90% recall
-python src/evaluate.py --experiment v3_KOKO --threshold recall90 --batch_size 128 --img_size 256 --num_workers 8
+python src/evaluate.py --experiment v3_KOKO --threshold recall90 --batch_size 256 --img_size 256 --num_workers 8
 ```
 
 ---
