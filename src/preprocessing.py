@@ -1,23 +1,11 @@
 # src/preprocessing.py
 """
-ISIC 2024 — Preprocessing & Data Analysis
-==========================================
-Run this BEFORE training to understand and clean the data.
-
-Usage:
-    cd isic-skin-cancer
-    python src/preprocessing.py
-
-What it does:
-    1. Loads & merges train.csv + metadata.csv
-    2. Analyzes class distribution (imbalance)
-    3. Explores metadata (age, sex, body site)
-    4. Checks image sizes and quality
-    5. Detects and reports missing/corrupt images
-    6. Saves cleaned merged CSV → data/processed/train_merged.csv
-    7. Saves all figures → reports/figures/
+ISIC 2024 — Preprocessing & EDA. Run this before training.
+Merges CSVs, checks class balance, scans images, saves train_merged.csv.
+Usage: python src/preprocessing.py [--experiment v4] [--no_show]
 """
 
+import argparse
 import os
 import sys
 from pathlib import Path
@@ -30,7 +18,12 @@ import seaborn as sns
 from PIL import Image
 from tqdm import tqdm
 
-# ── Paths ──
+import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+# --- Paths ---
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
 IMAGE_DIR = RAW_DIR / "images"
@@ -38,14 +31,13 @@ PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 FIGURES_DIR = PROJECT_ROOT / "reports" / "figures"
 
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+
+_no_show = False  # set by --no_show flag in main()
 
 sns.set_style("whitegrid")
 
 
-# ─────────────────────────────────────────────
-# STEP 1: Load & Merge
-# ─────────────────────────────────────────────
+# --- STEP 1: Load & Merge ---
 def load_and_merge():
     print("=" * 60)
     print("  STEP 1: Loading & Merging CSVs")
@@ -84,9 +76,7 @@ def load_and_merge():
     return df
 
 
-# ─────────────────────────────────────────────
-# STEP 2: Class Distribution
-# ─────────────────────────────────────────────
+# --- STEP 2: Class Distribution ---
 def analyze_class_distribution(df):
     print("\n" + "=" * 60)
     print("  STEP 2: Class Distribution Analysis")
@@ -119,13 +109,21 @@ def analyze_class_distribution(df):
 
     plt.tight_layout()
     plt.savefig(FIGURES_DIR / "class_distribution.png", dpi=150, bbox_inches="tight")
-    print(f"  Saved → {FIGURES_DIR / 'class_distribution.png'}")
-    plt.show()
+    print(f"  Saved -> {FIGURES_DIR / 'class_distribution.png'}")
+    if not _no_show:
+        plt.show()
+
+    ratio = n_benign / max(n_malignant, 1)
+    summary_path = FIGURES_DIR / "dataset_summary.txt"
+    with open(summary_path, "w") as f:
+        f.write(f"Total images: {total}\n")
+        f.write(f"Malignant: {n_malignant}  ({n_malignant/total*100:.1f}%)\n")
+        f.write(f"Benign:    {n_benign}  ({n_benign/total*100:.1f}%)\n")
+        f.write(f"Imbalance ratio (neg/pos): {ratio:.2f}\n")
+    print(f"  Saved -> {summary_path}")
 
 
-# ─────────────────────────────────────────────
-# STEP 3: Metadata Exploration
-# ─────────────────────────────────────────────
+# --- STEP 3: Metadata Exploration ---
 def analyze_metadata(df):
     print("\n" + "=" * 60)
     print("  STEP 3: Metadata Exploration")
@@ -162,8 +160,9 @@ def analyze_metadata(df):
         ax.legend()
         plt.tight_layout()
         plt.savefig(FIGURES_DIR / "age_distribution.png", dpi=150, bbox_inches="tight")
-        print(f"  Saved → {FIGURES_DIR / 'age_distribution.png'}")
-        plt.show()
+        print(f"  Saved -> {FIGURES_DIR / 'age_distribution.png'}")
+        if not _no_show:
+            plt.show()
 
     # categorical features vs target
     cat_candidates = [
@@ -188,13 +187,12 @@ def analyze_metadata(df):
         plt.suptitle("Malignancy Rate by Metadata Group", fontsize=14, fontweight="bold")
         plt.tight_layout()
         plt.savefig(FIGURES_DIR / "metadata_by_target.png", dpi=150, bbox_inches="tight")
-        print(f"  Saved → {FIGURES_DIR / 'metadata_by_target.png'}")
-        plt.show()
+        print(f"  Saved -> {FIGURES_DIR / 'metadata_by_target.png'}")
+        if not _no_show:
+            plt.show()
 
 
-# ─────────────────────────────────────────────
-# STEP 4: Image Quality Check
-# ─────────────────────────────────────────────
+# --- STEP 4: Image Quality Check ---
 def check_images(df, sample_n=1000):
     print("\n" + "=" * 60)
     print("  STEP 4: Image Quality Check")
@@ -250,15 +248,14 @@ def check_images(df, sample_n=1000):
 
         plt.tight_layout()
         plt.savefig(FIGURES_DIR / "image_sizes.png", dpi=150, bbox_inches="tight")
-        print(f"  Saved → {FIGURES_DIR / 'image_sizes.png'}")
-        plt.show()
+        print(f"  Saved -> {FIGURES_DIR / 'image_sizes.png'}")
+        if not _no_show:
+            plt.show()
 
     return missing_mask, corrupt_files
 
 
-# ─────────────────────────────────────────────
-# STEP 5: Sample Images
-# ─────────────────────────────────────────────
+# --- STEP 5: Sample Images ---
 def show_sample_images(df, n=8):
     print("\n" + "=" * 60)
     print("  STEP 5: Sample Images")
@@ -288,13 +285,12 @@ def show_sample_images(df, n=8):
     plt.suptitle("Sample Lesion Images", fontsize=16, fontweight="bold", y=1.02)
     plt.tight_layout()
     plt.savefig(FIGURES_DIR / "sample_images.png", dpi=150, bbox_inches="tight")
-    print(f"  Saved → {FIGURES_DIR / 'sample_images.png'}")
-    plt.show()
+    print(f"  Saved -> {FIGURES_DIR / 'sample_images.png'}")
+    if not _no_show:
+        plt.show()
 
 
-# ─────────────────────────────────────────────
-# STEP 6: Clean & Save
-# ─────────────────────────────────────────────
+# --- STEP 6: Clean & Save ---
 def clean_and_save(df, missing_mask, corrupt_files):
     print("\n" + "=" * 60)
     print("  STEP 6: Cleaning & Saving")
@@ -319,14 +315,12 @@ def clean_and_save(df, missing_mask, corrupt_files):
 
     out_path = PROCESSED_DIR / "train_merged.csv"
     df.to_csv(out_path, index=False)
-    print(f"\n  Saved → {out_path}")
+    print(f"\n  Saved -> {out_path}")
 
     return df
 
 
-# ─────────────────────────────────────────────
-# STEP 7: Summary
-# ─────────────────────────────────────────────
+# --- STEP 7: Summary ---
 def print_summary(df):
     print("\n" + "=" * 60)
     print("  PREPROCESSING COMPLETE — SUMMARY")
@@ -345,21 +339,33 @@ def print_summary(df):
 
     Saved files:
       data/processed/train_merged.csv
-      reports/figures/class_distribution.png
-      reports/figures/age_distribution.png
-      reports/figures/metadata_by_target.png
-      reports/figures/image_sizes.png
-      reports/figures/sample_images.png
+      {FIGURES_DIR}/class_distribution.png
+      {FIGURES_DIR}/age_distribution.png
+      {FIGURES_DIR}/metadata_by_target.png
+      {FIGURES_DIR}/image_sizes.png
+      {FIGURES_DIR}/sample_images.png
+      {FIGURES_DIR}/dataset_summary.txt
 
     Next step:
-      python src/train.py --epochs 15 --fine_tune --fine_tune_epochs 10 --batch_size 128 --num_workers 8
+      python src/train.py --experiment {FIGURES_DIR.name} --epochs 15 --fine_tune --fine_tune_epochs 10 --batch_size 128 --num_workers 8
     """)
 
 
-# ─────────────────────────────────────────────
-# MAIN
-# ─────────────────────────────────────────────
+# --- MAIN ---
 def main():
+    global FIGURES_DIR, _no_show
+
+    parser = argparse.ArgumentParser(description="ISIC 2024 — Preprocessing & EDA")
+    parser.add_argument("--experiment", type=str, default="v4",
+                        help="Experiment name; outputs go to reports/figures/<experiment>/")
+    parser.add_argument("--no_show", action="store_true",
+                        help="Skip plt.show() (useful for headless/server runs)")
+    args = parser.parse_args()
+
+    _no_show = args.no_show
+    FIGURES_DIR = PROJECT_ROOT / "reports" / "figures" / args.experiment
+    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+
     print("\n" + " ISIC 2024 — Skin Lesion Preprocessing ".center(60, "="))
     print()
 

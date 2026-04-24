@@ -3,6 +3,7 @@ import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 
 import argparse
+import csv
 import time
 from pathlib import Path
 import numpy as np
@@ -23,14 +24,9 @@ except ImportError:
 from dataloader import load_datasets
 
 
-# ─────────────────────────────────────────────
-# F1 SCORE HELPER
-# ─────────────────────────────────────────────
+# --- F1 SCORE HELPER ---
 def compute_best_f1(y_true, y_prob):
-    """
-    F1 Score = 2 × (Precision × Recall) / (Precision + Recall)
-    Searches thresholds to find the one that maximizes F1.
-    """
+    """Scan thresholds and return the one that gives the best F1 score."""
     best_f1, best_thr = 0.0, 0.5
     y_true = np.array(y_true)
     y_prob = np.array(y_prob)
@@ -49,14 +45,9 @@ def compute_best_f1(y_true, y_prob):
     return best_f1, best_thr
 
 
-# ─────────────────────────────────────────────
-# MODEL
-# ─────────────────────────────────────────────
+# --- MODEL ---
 class SkinModel(nn.Module):
-    """
-    Pretrained backbone + dropout + single output head.
-    Supports: efficientnet_b0, efficientnet_b1, efficientnet_b2, convnext_tiny
-    """
+    """Pretrained CNN backbone + dropout + 1 output node for binary classification."""
 
     def __init__(self, model_name="efficientnet_b0", weights="imagenet", dropout=0.4):
         super().__init__()
@@ -100,9 +91,7 @@ class SkinModel(nn.Module):
         return self.head(features).squeeze(1)
 
 
-# ─────────────────────────────────────────────
-# TRAINING / VALIDATION
-# ─────────────────────────────────────────────
+# --- TRAINING / VALIDATION ---
 def train_one_epoch(model, loader, criterion, optimizer, device, scaler):
     model.train()
     running_loss = 0.0
@@ -171,16 +160,15 @@ def validate(model, loader, criterion, device):
     return epoch_loss, auroc, prauc, best_f1
 
 
-# ─────────────────────────────────────────────
-# TRAINING PHASE — tracks F1 Score
-# ─────────────────────────────────────────────
+# --- TRAINING PHASE ---
 def run_training_phase(
     model, train_loader, val_loader, criterion, optimizer, scheduler,
     device, scaler, epochs, ckpt_path, phase_name="Training",
     patience=5, scheduler_type="plateau",
 ):
     history = {"loss": [], "auroc": [], "prauc": [], "f1": [],
-               "val_loss": [], "val_auroc": [], "val_prauc": [], "val_f1": []}
+               "val_loss": [], "val_auroc": [], "val_prauc": [], "val_f1": [],
+               "lr": []}
     best_prauc = 0.0
     patience_counter = 0
 
@@ -209,6 +197,7 @@ def run_training_phase(
         history["val_auroc"].append(v_auroc)
         history["val_prauc"].append(v_prauc)
         history["val_f1"].append(v_f1)
+        history["lr"].append(lr)
 
         print(f"Epoch {epoch}/{epochs} ({elapsed:.0f}s) lr={lr:.1e}  "
               f"loss={t_loss:.4f} auroc={t_auroc:.4f} prauc={t_prauc:.4f} f1={t_f1:.4f}  "
@@ -241,10 +230,8 @@ def run_training_phase(
     return history
 
 
-# ─────────────────────────────────────────────
-# PLOTTING — 4 panels including F1 Score
-# ─────────────────────────────────────────────
-def plot_history(history, out_path):
+# --- PLOTTING ---
+def plot_history(history, out_path, no_show=False):
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     epochs = range(1, len(history["loss"]) + 1)
 
@@ -281,12 +268,11 @@ def plot_history(history, out_path):
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=150)
     print(f"[INFO] Saved training curves -> {out_path}")
-    plt.show()
+    if not no_show:
+        plt.show()
 
 
-# ─────────────────────────────────────────────
-# MAIN
-# ─────────────────────────────────────────────
+# --- MAIN ---
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs", type=int, default=15)
@@ -306,8 +292,10 @@ def main():
     parser.add_argument("--fine_tune_epochs", type=int, default=10)
     parser.add_argument("--fine_tune_lr", type=float, default=1e-5)
 
-    parser.add_argument("--experiment", type=str, default="v1",
+    parser.add_argument("--experiment", type=str, default="v4",
                         help="Experiment name: saves to checkpoints/<exp>/ and figures/<exp>/")
+    parser.add_argument("--no_show", action="store_true",
+                        help="Skip plt.show() (useful for headless/server runs)")
 
     args = parser.parse_args()
 
@@ -353,13 +341,13 @@ def main():
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"[INFO] Parameters: {total:,} total, {trainable:,} trainable")
 
-    # ── 3. Loss — BCE with pos_weight (proven to work) ──
+    # ── 3. Loss — plain BCE (sampler already balances classes) ──
     n_neg = int((train_df["target"] == 0).sum())
     n_pos = int((train_df["target"] == 1).sum())
-    pos_weight = torch.tensor([n_neg / max(n_pos, 1)], dtype=torch.float32).to(device)
-    print(f"[INFO] pos_weight: {pos_weight.item():.1f}")
+    print(f"[INFO] Train set — neg: {n_neg:,}  pos: {n_pos:,}  ratio: {n_neg/max(n_pos,1):.1f}:1")
+    print(f"[INFO] pos_weight disabled — WeightedRandomSampler is handling imbalance")
 
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    criterion = nn.BCEWithLogitsLoss()
 
     # ── 4. Phase 1: train head only ──
     optimizer = optim.Adam(
@@ -405,8 +393,26 @@ def main():
         for k in history:
             history[k] = history[k] + ft_history[k]
 
-    # ── 6. Plot ──
-    plot_history(history, str(FIG_DIR / "training_curves.png"))
+    # ── 6. Plot + history CSV ──
+    plot_history(history, str(FIG_DIR / "training_curves.png"), no_show=args.no_show)
+
+    csv_path = FIG_DIR / "train_history.csv"
+    with open(csv_path, "w", newline="") as f:
+        fieldnames = ["epoch", "loss", "auroc", "prauc", "val_loss", "val_auroc", "val_prauc", "lr"]
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for i in range(len(history["loss"])):
+            writer.writerow({
+                "epoch": i + 1,
+                "loss": history["loss"][i],
+                "auroc": history["auroc"][i],
+                "prauc": history["prauc"][i],
+                "val_loss": history["val_loss"][i],
+                "val_auroc": history["val_auroc"][i],
+                "val_prauc": history["val_prauc"][i],
+                "lr": history["lr"][i],
+            })
+    print(f"[INFO] Saved train history -> {csv_path}")
 
     # ── 7. Save ──
     final_path = CKPT_DIR / "final_model.pth"

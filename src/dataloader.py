@@ -12,7 +12,6 @@ from torchvision import transforms
 
 
 class SkinDataset(Dataset):
-    """Simple dataset: loads image + label from dataframe."""
 
     def __init__(self, dataframe, transform=None):
         self.df = dataframe.reset_index(drop=True)
@@ -91,14 +90,6 @@ def _group_stratified_split(df, val_split, seed, group_col):
 
 
 def _make_group_id(df, lesion_col="lesion_id"):
-    """
-    Build a clean group ID for splitting:
-    - Use lesion_id when it's a real value
-    - Fall back to isic_id (unique per image) for NaN/missing values
-    
-    This prevents all NaN lesion_ids from becoming one giant group
-    that skews the train/val split.
-    """
     lesion = df[lesion_col].astype(str)
     is_missing = (
         df[lesion_col].isna()
@@ -216,7 +207,6 @@ def load_datasets(
     )
 
     # persistent_workers keeps workers alive between epochs (faster)
-    # prefetch_factor loads batches ahead of time
     persist = num_workers > 0
 
     train_loader = DataLoader(

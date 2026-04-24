@@ -22,10 +22,13 @@ from PIL import Image
 from dataloader import SkinDataset
 from train import SkinModel
 
+import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-# ─────────────────────────────────────────────
-# TEST TIME AUGMENTATION (TTA)
-# ─────────────────────────────────────────────
+
+# --- TEST-TIME AUGMENTATION (TTA) ---
 class TTADataset(Dataset):
     def __init__(self, dataframe, img_size=256):
         self.df = dataframe.reset_index(drop=True)
@@ -87,9 +90,7 @@ def predict_with_tta(model, loader, device):
     return np.array(all_preds), np.array(all_labels)
 
 
-# ─────────────────────────────────────────────
-# THRESHOLD HELPERS
-# ─────────────────────────────────────────────
+# --- THRESHOLD HELPERS ---
 def find_best_f1(y_true, y_prob):
     """Find threshold that maximizes F1 Score."""
     best_f1, best_thr = 0.0, 0.5
@@ -122,9 +123,7 @@ def target_recall_threshold(y_true, y_prob, target_recall=0.90):
     return thresholds[-1], 1.0
 
 
-# ─────────────────────────────────────────────
-# MAIN
-# ─────────────────────────────────────────────
+# --- MAIN ---
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--threshold", default="auto",
@@ -135,9 +134,19 @@ def main():
     parser.add_argument("--model", type=str, default="efficientnet_b0",
                         choices=["efficientnet_b0", "efficientnet_b1",
                                  "efficientnet_b2", "convnext_tiny"])
-    parser.add_argument("--experiment", type=str, default="v1")
+    parser.add_argument("--experiment", type=str, default="v4")
     parser.add_argument("--tta", action="store_true")
+    parser.add_argument("--no_show", action="store_true",
+                        help="Skip plt.show() (useful for headless/server runs)")
     args = parser.parse_args()
+
+    raw_thr = str(args.threshold).strip().lower()
+    if raw_thr == "auto":
+        thr_suffix = "auto"
+    elif raw_thr.startswith("recall"):
+        thr_suffix = raw_thr  # e.g. "recall90"
+    else:
+        thr_suffix = "thr_" + raw_thr.replace(".", "_")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"[INFO] Device: {device}")
@@ -152,14 +161,14 @@ def main():
     if not MODEL_PATH.exists():
         raise FileNotFoundError(f"Model not found: {MODEL_PATH}")
 
-    # ── 1. Load model ──
+    # -- 1. Load model --
     model = SkinModel(model_name=args.model, weights="none", dropout=0.4)
     model.load_state_dict(torch.load(MODEL_PATH, map_location=device, weights_only=True))
     model = model.to(device)
     model.eval()
     print(f"[INFO] Loaded: {MODEL_PATH}")
 
-    # ── 2. Load val split ──
+    # -- 2. Load val split --
     val_csv = ROOT / "data" / "processed" / "val_split.csv"
     val_df = pd.read_csv(val_csv, low_memory=False)
     y_true = val_df["target"].astype(int).values
@@ -167,7 +176,7 @@ def main():
     n_neg = int((1 - y_true).sum())
     print(f"[INFO] Val: {len(val_df):,} total | {n_neg:,} benign | {n_pos:,} malignant")
 
-    # ── 3. Get predictions ──
+    # -- 3. Get predictions --
     if args.tta:
         tta_dataset = TTADataset(val_df, img_size=args.img_size)
         tta_loader = DataLoader(tta_dataset, batch_size=args.batch_size,
@@ -191,7 +200,7 @@ def main():
                 all_preds.extend(torch.sigmoid(outputs).cpu().numpy())
         y_prob = np.array(all_preds)
 
-    # ── 4. Core Metrics ──
+    # -- 4. Core Metrics --
     auroc = roc_auc_score(y_true, y_prob)
     ap = average_precision_score(y_true, y_prob)
     f1_score, f1_thr, f1_prec, f1_rec = find_best_f1(y_true, y_prob)
@@ -205,21 +214,21 @@ def main():
     if args.tta:
         print(f"  TTA:      5-view average")
     print(f"")
-    print(f"  ┌─────────────────────────────────────────────┐")
-    print(f"  │  F1 SCORE:  {f1_score:.4f}                          │")
-    print(f"  │  (at threshold = {f1_thr:.3f})                   │")
-    print(f"  │                                             │")
-    print(f"  │  Precision: {f1_prec:.4f}  (correct when it      │")
-    print(f"  │                          says 'cancer')     │")
-    print(f"  │  Recall:    {f1_rec:.4f}  (cancers it found)     │")
-    print(f"  │                                             │")
-    print(f"  │  F1 = 2 × Precision × Recall                │")
-    print(f"  │       ─────────────────────                 │")
-    print(f"  │         Precision + Recall                  │")
-    print(f"  └─────────────────────────────────────────────┘")
+    print(f"  +---------------------------------------------+")
+    print(f"  |  F1 SCORE:  {f1_score:.4f}                          |")
+    print(f"  |  (at threshold = {f1_thr:.3f})                   |")
+    print(f"  |                                             |")
+    print(f"  |  Precision: {f1_prec:.4f}  (correct when it      |")
+    print(f"  |                          says 'cancer')     |")
+    print(f"  |  Recall:    {f1_rec:.4f}  (cancers it found)     |")
+    print(f"  |                                             |")
+    print(f"  |  F1 = 2 x Precision x Recall                |")
+    print(f"  |       ---------------------                 |")
+    print(f"  |         Precision + Recall                  |")
+    print(f"  +---------------------------------------------+")
     print(f"{'='*60}")
 
-    # ── 5. Threshold selection ──
+    # -- 5. Threshold selection --
     thr_str = str(args.threshold).lower()
     if thr_str == "auto":
         thr = f1_thr
@@ -233,7 +242,7 @@ def main():
 
     y_pred = (y_prob >= thr).astype(int)
 
-    # ── 6. Confusion Matrix ──
+    # -- 6. Confusion Matrix --
     cm = confusion_matrix(y_true, y_pred)
     tn, fp, fn, tp = cm.ravel()
 
@@ -243,19 +252,19 @@ def main():
     f1_at_thr = 2 * precision * sensitivity / (precision + sensitivity + 1e-9)
 
     print(f"\n  Confusion Matrix (threshold={thr:.3f}):")
-    print(f"  ┌────────────┬──────────────┬──────────────┐")
-    print(f"  │            │ Pred Benign  │ Pred Malig.  │")
-    print(f"  ├────────────┼──────────────┼──────────────┤")
-    print(f"  │ True Benign│ TN={tn:>8,} │ FP={fp:>8,} │")
-    print(f"  │ True Malig.│ FN={fn:>8,} │ TP={tp:>8,} │")
-    print(f"  └────────────┴──────────────┴──────────────┘")
+    print(f"  +------------+--------------+--------------+")
+    print(f"  |            | Pred Benign  | Pred Malig.  |")
+    print(f"  +------------+--------------+--------------+")
+    print(f"  | True Benign| TN={tn:>8,} | FP={fp:>8,} |")
+    print(f"  | True Malig.| FN={fn:>8,} | TP={tp:>8,} |")
+    print(f"  +------------+--------------+--------------+")
     print(f"")
     print(f"  Sensitivity (Recall):  {sensitivity:.4f}  ({tp}/{tp+fn} malignant caught)")
     print(f"  Specificity:           {specificity:.4f}  ({tn}/{tn+fp} benign correct)")
     print(f"  Precision:             {precision:.4f}  ({tp}/{tp+fp} predicted malig. correct)")
     print(f"  F1 Score:              {f1_at_thr:.4f}")
 
-    # ── 7. ROC Curve ──
+    # -- 7. ROC Curve --
     fpr, tpr, _ = roc_curve(y_true, y_prob)
     plt.figure(figsize=(7, 6))
     plt.plot(fpr, tpr, lw=2, label=f"ROC (AUROC={auroc:.4f})")
@@ -267,9 +276,10 @@ def main():
     plt.grid(True, alpha=0.3)
     plt.savefig(FIG_DIR / "roc_curve.png", dpi=150, bbox_inches="tight")
     print(f"[INFO] Saved: {FIG_DIR / 'roc_curve.png'}")
-    plt.show()
+    if not args.no_show:
+        plt.show()
 
-    # ── 8. PR Curve ──
+    # -- 8. PR Curve --
     prec_arr, rec_arr, _ = precision_recall_curve(y_true, y_prob)
     plt.figure(figsize=(7, 6))
     plt.plot(rec_arr, prec_arr, lw=2, label=f"PR (AP={ap:.4f})")
@@ -280,9 +290,10 @@ def main():
     plt.grid(True, alpha=0.3)
     plt.savefig(FIG_DIR / "pr_curve.png", dpi=150, bbox_inches="tight")
     print(f"[INFO] Saved: {FIG_DIR / 'pr_curve.png'}")
-    plt.show()
+    if not args.no_show:
+        plt.show()
 
-    # ── 9. Confusion Matrix Plot ──
+    # -- 9. Confusion Matrix Plot --
     plt.figure(figsize=(6, 5))
     plt.imshow(cm, cmap="Blues")
     plt.title(f"Confusion Matrix (thr={thr:.3f}, F1={f1_at_thr:.4f})")
@@ -296,16 +307,31 @@ def main():
     plt.ylabel("True")
     plt.xlabel("Pred")
     plt.tight_layout()
-    plt.savefig(FIG_DIR / "confusion_matrix.png", dpi=150, bbox_inches="tight")
-    print(f"[INFO] Saved: {FIG_DIR / 'confusion_matrix.png'}")
-    plt.show()
+    cm_path = FIG_DIR / f"confusion_matrix_{thr_suffix}.png"
+    plt.savefig(cm_path, dpi=150, bbox_inches="tight")
+    print(f"[INFO] Saved: {cm_path}")
+    if not args.no_show:
+        plt.show()
 
-    # ── 10. Classification Report ──
+    # -- metrics txt --
+    metrics_path = FIG_DIR / f"metrics_{thr_suffix}.txt"
+    with open(metrics_path, "w") as f:
+        f.write(f"AUROC: {auroc:.4f}\n")
+        f.write(f"PR-AUC: {ap:.4f}\n")
+        f.write(f"Threshold used: {thr:.4f}\n")
+        f.write(f"TP: {tp}  FP: {fp}  FN: {fn}  TN: {tn}\n")
+        f.write(f"Precision: {precision:.4f}\n")
+        f.write(f"Recall: {sensitivity:.4f}\n")
+        f.write(f"F1: {f1_at_thr:.4f}\n")
+        f.write(f"Specificity: {specificity:.4f}\n")
+    print(f"[INFO] Saved: {metrics_path}")
+
+    # -- 10. Classification Report --
     print(f"\nClassification Report:")
     print(classification_report(y_true, y_pred,
                                 target_names=["Benign", "Malignant"], digits=4))
 
-    # ── 11. Summary ──
+    # -- 11. Summary --
     print(f"{'='*60}")
     print(f"  FINAL SUMMARY — {args.experiment}")
     print(f"{'='*60}")
@@ -314,7 +340,8 @@ def main():
     print(f"  F1 Score:       {f1_score:.4f}")
     print(f"  Cancers caught: {tp}/{tp+fn} ({sensitivity:.1%})")
     print(f"  False alarms:   {fp}/{tn+fp} ({fp/(tn+fp)*100:.2f}%)")
-    print(f"  All plots → {FIG_DIR}")
+    print(f"  All plots -> {FIG_DIR}")
+    print(f"  confusion_matrix_{thr_suffix}.png  metrics_{thr_suffix}.txt")
     print(f"{'='*60}")
 
 
