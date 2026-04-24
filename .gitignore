@@ -18,3 +18,5 @@ data/processed/*
 data/raw/*
 !data/raw/*.csv
 data/raw/images/
+
+data/raw/images/
